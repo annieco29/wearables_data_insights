@@ -2,6 +2,8 @@ import os
 import json
 import tarfile
 import xmltodict
+import concurrent.futures
+from tqdm import tqdm
 from google.cloud import storage
 from unstructured.partition.xml import partition_xml
 
@@ -23,59 +25,63 @@ bucket = client.bucket(BUCKET_NAME)
 # List .tar.gz files in GCS bucket
 blobs = list(bucket.list_blobs(prefix=""))
 
-# Download and extract only the FIRST .tar.gz file
-for blob in blobs:
+# Download and extract all .tar.gz files
+for blob in tqdm(blobs, desc="Downloading .tar.gz files"):
     if blob.name.endswith(".tar.gz"):
         local_file_path = os.path.join(LOCAL_DOWNLOAD_DIR, os.path.basename(blob.name))
 
-        blob.download_to_filename(local_file_path)
-        print(f"Download {blob.name} complete: {local_file_path}")
+        # Skip download if file already exists
+        if not os.path.exists(local_file_path):
+            blob.download_to_filename(local_file_path)
+            print(f"Download complete: {local_file_path}")
 
-        # Extract the .tar.gz file
-        print(f"Extracting {local_file_path} to {EXTRACTION_DIR}...")
+        # Extract .tar.gz file
+        extraction_subdir = os.path.join(EXTRACTION_DIR, os.path.splitext(os.path.basename(blob.name))[0])
+        os.makedirs(extraction_subdir, exist_ok=True)
+
+        print(f"Extracting {local_file_path} to {extraction_subdir}...")
         with tarfile.open(local_file_path, "r:gz") as tar:
-            tar.extractall(EXTRACTION_DIR)
-        print(f"Extraction complete: {EXTRACTION_DIR}")
+            tar.extractall(extraction_subdir)
+        print(f"Extraction complete: {extraction_subdir}")
 
-        break  # Stop after the first .tar.gz file
+# Function to process an XML file
+def process_xml_file(xml_path):
+    """Reads and preprocesses an XML file using `unstructured`."""
+    try:
+        with open(xml_path, "r", encoding="utf-8") as f:
+            xml_content = f.read()
 
-# Function to process XML
-def process_xml(xml_file):
-    """
-    Reads and preprocesses an XML file using the `unstructured` library.
-    """
-    with open(xml_file, "r", encoding="utf-8") as f:
-        xml_content = f.read()
+        # Convert XML to structured text
+        elements = partition_xml(text=xml_content)
 
-    # Convert XML to structured text
-    elements = partition_xml(text=xml_content)
+        # Extract clean text from elements
+        processed_text = "\n".join([element.text for element in elements if element.text])
 
-    # Extract clean text from elements
-    processed_text = "\n".join([element.text for element in elements if element.text])
+        # Save processed text as JSON
+        json_filename = os.path.basename(xml_path) + ".json"
+        output_json_path = os.path.join(PROCESSED_DATA_DIR, json_filename)
 
-    return processed_text
+        with open(output_json_path, "w", encoding="utf-8") as json_file:
+            json.dump({"filename": os.path.basename(xml_path), "text": processed_text}, json_file, indent=4)
 
-# Find and process the FIRST XML file
-# xml_found = False
-for root_dir, _, files in os.walk(EXTRACTION_DIR):
+        return f"Processed: {xml_path}"
+    
+    except Exception as e:
+        return f"Error processing {xml_path}: {e}"
+
+# Find all XML files
+xml_files = []
+for root, _, files in os.walk(EXTRACTION_DIR):
     for file in files:
         if file.endswith(".xml"):
-            xml_path = os.path.join(root_dir, file)
-            print(f"Processing XML file: {xml_path}...")
+            xml_files.append(os.path.join(root, file))
 
-            # Process XML and extract clean text
-            clean_text = process_xml(xml_path)
+print(f"Found {len(xml_files)} XML files to process.")
 
-            # Save processed text as JSON
-            output_json_path = os.path.join(PROCESSED_DATA_DIR, f"{file}.json")
-            with open(output_json_path, "w", encoding="utf-8") as json_file:
-                json.dump({"filename": file, "text": clean_text}, json_file, indent=4)
+# Process XML files in parallel (multiprocessing)
+with concurrent.futures.ProcessPoolExecutor(max_workers=8) as executor:
+    results = list(tqdm(executor.map(process_xml_file, xml_files), total=len(xml_files), desc="Processing XML files"))
 
-            print(f"Saved processed text to {output_json_path}")
-
-            # xml_found = True
-           # break  # Stop after processing the first XML file
-    # if xml_found:
-        #break  # Exit after processing the first XML
-
-print("Processing complete. Ready for RAG indexing!")
+# Print completion message
+print("\n".join(results))
+print("All XML files have been processed and stored in JSON format!")
