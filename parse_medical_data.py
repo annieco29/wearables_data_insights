@@ -79,18 +79,3 @@ for root_dir, _, files in os.walk(EXTRACTION_DIR):
         #break  # Exit after processing the first XML
 
 print("Processing complete. Ready for RAG indexing!")
-
-
-# DLAI_API_KEY = utils.get_dlai_api_key()
-# DLAI_API_URL = utils.get_dlai_url()
-
-# s = UnstructuredClient(
-#     api_key_auth=DLAI_API_KEY,
-#     server_url=DLAI_API_URL,
-# )
-
-# filename = "data.nosync/"
-# elements = partition_xml(filename=filename)
-# element_dict = [el.to_dict() for el in elements]
-# example_output = json.dumps(element_dict[11:15], indent=2)
-# print(example_output)
