@@ -1,3 +1,14 @@
 wearables_rag/*
 wearables_rag/.ipynb_checkpoints/*
 /wearables_rag
+/data.nosync
+/data
+data.nosync
+data.nosync/*
+data.nosync/
+downloads
+downloads/*
+processed_data
+processed_data/*
+extracted
+extracted/*
